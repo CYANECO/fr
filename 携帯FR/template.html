@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>FR差モニター</title>
+<style>
+:root {
+  --bg: #14171c; --panel: #1c2027; --alt: #20252d; --fg: #e6e8eb; --sub: #8b939e;
+  --accent: #4c9aff; --good: #5fd38d; --bad: #ff8a65; --line: #2c323c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.45 system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--line); }
+h1 { font-size: 17px; margin: 0; display: flex; justify-content: space-between; align-items: baseline; }
+#time { font-size: 13px; font-weight: normal; color: var(--sub); }
+#time.old { color: var(--bad); }
+#warn { color: var(--bad); font-size: 13px; }
+details { margin-top: 6px; }
+summary { color: var(--accent); cursor: pointer; font-size: 14px; }
+.filters { display: grid; gap: 8px; padding: 8px 0 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--sub);
+  border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.row2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+select, input[type=search] { background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; font-size: 15px; }
+input[type=search] { flex: 1; min-width: 120px; }
+label { font-size: 14px; color: var(--sub); }
+main { padding: 8px 16px 40px; }
+.card { background: var(--panel); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.card:nth-child(even) { background: var(--alt); }
+.top { display: flex; justify-content: space-between; align-items: baseline; }
+.sym { font-weight: bold; font-size: 16px; }
+.rank { color: var(--sub); font-size: 12px; margin-left: 6px; font-weight: normal; }
+.diff { font-weight: bold; font-size: 18px; font-variant-numeric: tabular-nums; }
+.side { display: grid; grid-template-columns: 4.2em 1fr auto; gap: 6px; font-size: 13px;
+  font-variant-numeric: tabular-nums; margin-top: 2px; }
+.side a { color: var(--fg); text-decoration: none; border-bottom: 1px dotted var(--sub); }
+.tag { color: var(--sub); }
+.fr { text-align: right; }
+.pxd { font-size: 13px; margin-top: 2px; text-align: right; }
+.good { color: var(--good); } .bad { color: var(--bad); }
+#more { display: block; width: 100%; padding: 10px; background: var(--panel); color: var(--accent);
+  border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
+#count { color: var(--sub); font-size: 13px; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FR差モニター <span id="time"></span></h1>
+  <div id="warn"></div>
+  <details>
+    <summary>絞り込み・並べ替え</summary>
+    <div class="filters">
+      <div class="chips" id="venues"></div>
+      <div class="row2">
+        <select id="kind"><option>すべて</option><option>仮想通貨</option><option>株・商品</option></select>
+        <select id="sort">
+          <option value="diff">FR差が大きい順</option>
+          <option value="pxd">価格差が大きい順</option>
+          <option value="rank">時価総額順位順</option>
+          <option value="sym">銘柄名順</option>
+        </select>
+      </div>
+      <div class="row2">
+        <input type="search" id="q" placeholder="銘柄で検索（例：BTC）">
+        <label><input type="checkbox" id="extreme" checked> FR±500%超を除外</label>
+      </div>
+    </div>
+  </details>
+</header>
+<main>
+  <p id="count"></p>
+  <div id="list"></div>
+  <button id="more" hidden>もっと見る</button>
+</main>
+<script>
+const P = /*DATA*/null;
+const NON_CRYPTO = new Set(P.nonCrypto);
+const VENUES = Object.keys(P.data);
+const PAGE = 50;
+let shown = PAGE;
+
+function load() { try { return JSON.parse(localStorage.getItem("frm") || "{}"); } catch (e) { return {}; } }
+function save() { try { localStorage.setItem("frm", JSON.stringify(st)); } catch (e) {} }
+const st = Object.assign({ off: [], kind: "すべて", sort: "diff", q: "", extreme: true }, load());
+
+// dex_fr_diff.group_by_symbol / build_rows と同じ計算
+function buildRows() {
+  const by = {};
+  for (const ex of VENUES) {
+    if (st.off.includes(ex)) continue;
+    for (const [sym, [fr, px]] of Object.entries(P.data[ex])) (by[sym] ||= []).push([fr, ex, px]);
+  }
+  const rows = [];
+  for (const [sym, all] of Object.entries(by)) {
+    if (all.length < 2) continue;
+    const mid = all.map(i => i[2]).sort((a, b) => a - b)[Math.floor(all.length / 2)];
+    const items = all.filter(i => mid && Math.abs(i[2] / mid - 1) <= 0.2).sort((a, b) => a[0] - b[0]);
+    if (items.length < 2) continue;
+    const lo = items[0], hi = items[items.length - 1];
+    rows.push({ sym, diff: hi[0] - lo[0], hi, lo, pxd: lo[2] ? (hi[2] - lo[2]) / lo[2] * 100 : 0 });
+  }
+  return rows;
+}
+
+const fmt = (n, d = 1) => n.toLocaleString("ja-JP", { minimumFractionDigits: d, maximumFractionDigits: d });
+const price = n => Number(n.toPrecision(6)).toString();
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function side(label, [fr, ex, px], sym) {
+  const url = (P.urls[ex] || {})[sym];
+  const name = url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(ex)}</a>` : esc(ex);
+  return `<div class="side"><span class="tag">${label}</span><span>${name} @${price(px)}</span>` +
+         `<span class="fr">${fmt(fr)}%</span></div>`;
+}
+
+function render() {
+  const q = st.q.trim().toUpperCase();
+  let rows = buildRows().filter(r =>
+    (!q || r.sym.includes(q)) &&
+    (!st.extreme || (Math.abs(r.hi[0]) <= 500 && Math.abs(r.lo[0]) <= 500)) &&
+    (st.kind === "すべて" || (st.kind === "仮想通貨") === !NON_CRYPTO.has(r.sym)));
+  const key = {
+    diff: (a, b) => b.diff - a.diff, pxd: (a, b) => b.pxd - a.pxd,
+    rank: (a, b) => (P.ranks[a.sym] || 1e9) - (P.ranks[b.sym] || 1e9),
+    sym: (a, b) => a.sym.localeCompare(b.sym),
+  }[st.sort];
+  rows.sort(key);
+  document.getElementById("count").textContent = `${rows.length}銘柄`;
+  document.getElementById("list").innerHTML = rows.slice(0, shown).map(r => {
+    const rank = P.ranks[r.sym];
+    return `<div class="card"><div class="top"><span class="sym">${esc(r.sym)}` +
+      (rank ? `<span class="rank">#${rank}</span>` : "") + `</span>` +
+      `<span class="diff">${fmt(r.diff)}%</span></div>` +
+      side("ショート", r.hi, r.sym) + side("ロング", r.lo, r.sym) +
+      `<div class="pxd ${r.pxd >= 0 ? "good" : "bad"}">価格差 ${r.pxd >= 0 ? "+" : ""}${fmt(r.pxd, 2)}%</div></div>`;
+  }).join("");
+  document.getElementById("more").hidden = rows.length <= shown;
+}
+
+function updateTime() {
+  const min = Math.round((Date.now() / 1000 - P.epoch) / 60);
+  const el = document.getElementById("time");
+  el.textContent = `${P.time.slice(5)} 更新（${min}分前）`;
+  el.classList.toggle("old", min >= 30);
+}
+
+const vbox = document.getElementById("venues");
+for (const ex of VENUES) {
+  const b = document.createElement("button");
+  b.className = "chip" + (st.off.includes(ex) ? "" : " on");
+  b.textContent = ex;
+  b.onclick = () => {
+    st.off = st.off.includes(ex) ? st.off.filter(v => v !== ex) : [...st.off, ex];
+    b.classList.toggle("on"); shown = PAGE; save(); render();
+  };
+  vbox.appendChild(b);
+}
+for (const id of ["kind", "sort", "q"]) {
+  const el = document.getElementById(id);
+  el.value = st[id];
+  el.oninput = () => { st[id] = el.value; shown = PAGE; save(); render(); };
+}
+const ext = document.getElementById("extreme");
+ext.checked = st.extreme;
+ext.onchange = () => { st.extreme = ext.checked; save(); render(); };
+document.getElementById("more").onclick = () => { shown += PAGE; render(); };
+if (P.failed.length) document.getElementById("warn").textContent = `取得できなかった取引所：${P.failed.join("、")}`;
+
+updateTime();
+render();
+setInterval(updateTime, 30000);
+// 新しいデータが出ているはずの頃に、自動で読み直す（画面を開いている間だけ）
+setInterval(() => { if (!document.hidden) location.reload(); }, 5 * 60000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() / 1000 - P.epoch > 10 * 60) location.reload();
+});
+</script>
+</body>
+</html>

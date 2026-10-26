@@ -1,0 +1,45 @@
+# 携帯用のFR差ページを数分ごとに作り直して、GitHub Pages で公開する
+name: FR差ページ更新
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # 10分ごと(GitHub側が混んでいると数分遅れる)
+  workflow_dispatch:         # 「Run workflow」ボタンで手動でも動かせる
+
+permissions:
+  contents: write  # 60日止まり防止のコミット用
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests websocket-client
+      - run: python 携帯FR/make_page.py site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+      # 公開リポジトリは60日間コミットがないと自動実行が止まるので、50日たったら空のコミットを入れる
+      - name: 自動停止の防止
+        run: |
+          if [ $(( $(date +%s) - $(git log -1 --format=%ct) )) -gt 4320000 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "自動停止の防止"
+            git push
+          fi

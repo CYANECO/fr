@@ -1,0 +1,11 @@
+# GitHub(公開)には、携帯ページに必要なファイルだけを上げる。
+# それ以外(.env・口座のアドレス・履歴DB・画像など)はすべて上げない。
+*
+!.gitignore
+!dex_fr_diff.py
+!携帯FR/
+!携帯FR/make_page.py
+!携帯FR/template.html
+!.github/
+!.github/workflows/
+!.github/workflows/fr-page.yml
