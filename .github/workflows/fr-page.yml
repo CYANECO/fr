@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false  # 途中で止めると記録(キャッシュ)が保存されないので、順番待ちにする
 
 jobs:
   build:
@@ -28,7 +28,22 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests websocket-client
+      # RISEx・Variational・SoDEX のFRの記録と継続FR差の計算結果を、前回の実行から引き継ぐ
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            携帯FR/fr_history.db
+            携帯FR/persist.json
+          key: fr-history-${{ github.run_id }}
+          restore-keys: fr-history-
       - run: python 携帯FR/make_page.py site
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            携帯FR/fr_history.db
+            携帯FR/persist.json
+          key: fr-history-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

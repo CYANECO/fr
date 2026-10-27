@@ -48,12 +48,21 @@ main { padding: 8px 16px 40px; }
 #more { display: block; width: 100%; padding: 10px; background: var(--panel); color: var(--accent);
   border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
 #count { color: var(--sub); font-size: 13px; margin: 0 0 6px; }
+.tabs { display: flex; gap: 6px; margin-top: 8px; }
+.tabs button { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--sub); font-size: 14px; }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stats { display: flex; justify-content: space-between; font-size: 13px; margin-top: 4px;
+  font-variant-numeric: tabular-nums; color: var(--sub); }
+.warnc { color: #ffb74d; }
+.note { color: var(--sub); font-size: 12px; margin: 0 0 8px; }
 </style>
 </head>
 <body>
 <header>
   <h1>FR差モニター <span id="time"></span></h1>
   <div id="warn"></div>
+  <div class="tabs"><button id="tabNow">今のFR差</button><button id="tabPersist">継続FR差</button></div>
   <details>
     <summary>絞り込み・並べ替え</summary>
     <div class="filters">
@@ -75,6 +84,7 @@ main { padding: 8px 16px 40px; }
   </details>
 </header>
 <main>
+  <p id="note" class="note" hidden></p>
   <p id="count"></p>
   <div id="list"></div>
   <button id="more" hidden>もっと見る</button>
@@ -88,7 +98,7 @@ let shown = PAGE;
 
 function load() { try { return JSON.parse(localStorage.getItem("frm") || "{}"); } catch (e) { return {}; } }
 function save() { try { localStorage.setItem("frm", JSON.stringify(st)); } catch (e) {} }
-const st = Object.assign({ off: [], kind: "すべて", sort: "diff", q: "", extreme: true }, load());
+const st = Object.assign({ off: [], kind: "すべて", sort: "diff", q: "", extreme: true, tab: "now" }, load());
 
 // dex_fr_diff.group_by_symbol / build_rows と同じ計算
 function buildRows() {
@@ -120,8 +130,61 @@ function side(label, [fr, ex, px], sym) {
          `<span class="fr">${fmt(fr)}%</span></div>`;
 }
 
+// 継続FR差：銘柄ごとに、表示中の取引所どうしで平均FR差がいちばん大きい組み合わせを選ぶ
+function persistRows() {
+  const best = {};
+  for (const [sym, sh, lg, avg, keep, low, cover] of (P.persist ? P.persist.rows : [])) {
+    if (st.off.includes(sh) || st.off.includes(lg)) continue;
+    if (!best[sym] || avg > best[sym].avg) best[sym] = { sym, sh, lg, avg, keep, low, cover };
+  }
+  return Object.values(best).map(r => {
+    const a = (P.data[r.sh] || {})[r.sym], b = (P.data[r.lg] || {})[r.sym];
+    return Object.assign(r, { a, b, now: a && b ? a[0] - b[0] : null });
+  });
+}
+
+function pside(label, ex, v, sym) {
+  return v ? side(label, [v[0], ex, v[1]], sym)
+           : `<div class="side"><span class="tag">${label}</span><span>${esc(ex)}</span><span class="fr">—</span></div>`;
+}
+
+function renderPersist(q) {
+  const note = document.getElementById("note");
+  note.hidden = false;
+  note.textContent = P.persist
+    ? `過去${P.persist.days}日の1時間ごとのFRで計算（${P.persist.time.slice(5)}、1時間ごとに更新）。` +
+      "平均＝ショート側とロング側のFR差（年率）の平均、継続率＝ショート側が高かった時間の割合、" +
+      "下位25%＝差が小さかった時間帯の目安（ここもプラスなら安定）。" +
+      "RISEx・Variational・SoDEXは記録した分だけで判断し、データが期間の6割未満の組み合わせは出ません。"
+    : "継続FR差はまだ計算されていません。";
+  let rows = persistRows().filter(r =>
+    (!q || r.sym.includes(q)) &&
+    (st.kind === "すべて" || (st.kind === "仮想通貨") === !NON_CRYPTO.has(r.sym)));
+  const key = {
+    rank: (a, b) => (P.ranks[a.sym] || 1e9) - (P.ranks[b.sym] || 1e9),
+    sym: (a, b) => a.sym.localeCompare(b.sym),
+  }[st.sort] || ((a, b) => b.avg - a.avg);
+  rows.sort(key);
+  document.getElementById("count").textContent = `${rows.length}銘柄`;
+  document.getElementById("list").innerHTML = rows.slice(0, shown).map(r => {
+    const rank = P.ranks[r.sym];
+    const now = r.now === null ? "—" : `<span class="${r.now < 0 ? "warnc" : ""}">${fmt(r.now)}%</span>`;
+    return `<div class="card"><div class="top"><span class="sym">${esc(r.sym)}` +
+      (rank ? `<span class="rank">#${rank}</span>` : "") + `</span>` +
+      `<span class="diff">平均 ${fmt(r.avg)}%</span></div>` +
+      pside("ショート", r.sh, r.a, r.sym) + pside("ロング", r.lg, r.b, r.sym) +
+      `<div class="stats"><span>継続率 ${r.keep}%</span><span class="${r.low < 0 ? "bad" : "good"}">下位25% ${fmt(r.low)}%</span>` +
+      `<span>今の差 ${now}</span></div></div>`;
+  }).join("");
+  document.getElementById("more").hidden = rows.length <= shown;
+}
+
 function render() {
   const q = st.q.trim().toUpperCase();
+  document.getElementById("tabNow").classList.toggle("on", st.tab !== "persist");
+  document.getElementById("tabPersist").classList.toggle("on", st.tab === "persist");
+  if (st.tab === "persist") return renderPersist(q);
+  document.getElementById("note").hidden = true;
   let rows = buildRows().filter(r =>
     (!q || r.sym.includes(q)) &&
     (!st.extreme || (Math.abs(r.hi[0]) <= 500 && Math.abs(r.lo[0]) <= 500)) &&
@@ -170,6 +233,8 @@ for (const id of ["kind", "sort", "q"]) {
 const ext = document.getElementById("extreme");
 ext.checked = st.extreme;
 ext.onchange = () => { st.extreme = ext.checked; save(); render(); };
+for (const [id, tab] of [["tabNow", "now"], ["tabPersist", "persist"]])
+  document.getElementById(id).onclick = () => { st.tab = tab; shown = PAGE; save(); render(); };
 document.getElementById("more").onclick = () => { shown += PAGE; render(); };
 if (P.failed.length) document.getElementById("warn").textContent = `取得できなかった取引所：${P.failed.join("、")}`;
 

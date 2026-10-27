@@ -3,6 +3,7 @@
 *
 !.gitignore
 !dex_fr_diff.py
+!fr_history.py
 !携帯FR/
 !携帯FR/make_page.py
 !携帯FR/template.html
