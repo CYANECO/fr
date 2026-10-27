@@ -23,6 +23,7 @@ TRADE_URLS = {  # FR差モニター.pyw と同じ
     "Variational": "https://omni.variational.io/perpetual/{sym}",
     "Arcus": "https://app.arcus.xyz/trade/perpetuals/{sym}-USD",
     "GRVT": "https://grvt.io/exchange/perpetual/{sym}-USDT",
+    "SoDEX": "https://sodex.com/trade/futures/{sym}-USD",
     "MEXC": "https://www.mexc.com/futures/{sym}_USDT",
 }
 

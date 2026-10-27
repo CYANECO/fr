@@ -1,4 +1,4 @@
-"""DeFi系perp DEX(Phoenix / RISEx / Meridian / Variational / Arcus / GRVT)とMEXCのFR差と価格差を抽出する。
+"""DeFi系perp DEX(Phoenix / RISEx / Meridian / Variational / Arcus / GRVT / SoDEX)とMEXCのFR差と価格差を抽出する。
 APIキー不要(公開API)。使い方: python dex_fr_diff.py [表示件数]
 FRは「年率%」に揃えて比較する(精算間隔が取引所ごとに違うため)。
 """
@@ -26,6 +26,8 @@ VARIATIONAL = "https://omni-client-api.prod.ap-northeast-1.variational.io"
 MEXC = "https://contract.mexc.com"
 ARCUS = "https://api.arcus.xyz"
 GRVT = "https://market-data.grvt.io"
+SODEX = "https://mainnet-gw.sodex.dev"
+SODEX_BIZ = "https://alpha-biz.sodex.dev"
 
 # 株・ETF・商品(金や原油など)の銘柄。取引所の情報から集める。時価総額順位を付けないために使う
 NON_CRYPTO = set()
@@ -168,6 +170,29 @@ def grvt():
     return out
 
 
+def sodex():
+    """FR: fundingRate は精算1回あたりの率(小数)、fundingInterval が精算間隔(秒。今は全銘柄3600)。
+    価格: markPrice。株・指数・商品は biz/futures/symbols の tags で見分ける。"""
+    syms = {m["name"]: m for m in get(f"{SODEX}/api/v1/perps/markets/symbols")["data"]
+            if m.get("status") == "TRADING"}
+    try:
+        for m in get(f"{SODEX_BIZ}/biz/futures/symbols")["data"]:
+            if set(m.get("tags") or []) & {"stocks", "indexes", "commodities"}:
+                sym = m["baseCoin"].upper()
+                NON_CRYPTO.add(ALIASES.get(sym, sym))  # SILVER は XAG にそろえられるので
+    except Exception:  # 種類が取れなくてもFRは表示する
+        pass
+    out = {}
+    for d in get(f"{SODEX}/api/v1/perps/markets/mark-prices")["data"]:
+        m = syms.get(d["symbol"])
+        if not m or not d.get("markPrice"):
+            continue
+        out[m["baseCoin"].upper()] = (float(d["fundingRate"]) * 100 * HOURS_PER_YEAR * 3600
+                                      / (m.get("fundingInterval") or 3600),
+                                      float(d["markPrice"]))
+    return out
+
+
 def mexc():
     """CEX。FR: fundingRate は精算1回あたりの率(小数)、collectCycle が精算間隔(時間)。
     価格: fairPrice(MEXCのマーク価格)。"""
@@ -191,7 +216,7 @@ def mexc():
 
 
 VENUES = {"Phoenix": phoenix, "RISEx": risex, "Meridian": meridian, "Arcus": arcus, "GRVT": grvt,
-          "Variational": variational, "MEXC": mexc}
+          "Variational": variational, "SoDEX": sodex, "MEXC": mexc}
 
 
 def fetch_all(log=print):
