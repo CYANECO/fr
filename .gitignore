@@ -7,6 +7,7 @@
 !携帯FR/
 !携帯FR/make_page.py
 !携帯FR/template.html
+!携帯FR/jpyc_alert.py
 !.github/
 !.github/workflows/
 !.github/workflows/fr-page.yml

@@ -34,8 +34,15 @@ jobs:
           path: |
             携帯FR/fr_history.db
             携帯FR/persist.json
+            携帯FR/jpyc_state.json
           key: fr-history-${{ github.run_id }}
           restore-keys: fr-history-
+      # JPYCが割安(0.995円以下)なら携帯へ通知(ntfy)。合言葉は Secrets の NTFY_TOPIC。失敗してもページ作りは続ける
+      - name: JPYCの見張り
+        run: python 携帯FR/jpyc_alert.py
+        continue-on-error: true
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
       - run: python 携帯FR/make_page.py site
       - uses: actions/cache/save@v4
         if: always()
@@ -43,6 +50,7 @@ jobs:
           path: |
             携帯FR/fr_history.db
             携帯FR/persist.json
+            携帯FR/jpyc_state.json
           key: fr-history-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/upload-pages-artifact@v3
         with:
