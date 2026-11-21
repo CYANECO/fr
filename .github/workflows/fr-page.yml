@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,7 +55,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+      # 公開はGitHub側の不調でときどき失敗する(「github-pages という成果物が見つからない」)。
+      # 1回目が失敗したら少し待ってもう一度だけ試す(2回とも失敗したときだけ失敗のメールが来る)
       - id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - if: steps.deploy.outcome == 'failure'
+        run: sleep 45
+      - id: deploy2
+        if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v4
       # 公開リポジトリは60日間コミットがないと自動実行が止まるので、50日たったら空のコミットを入れる
       - name: 自動停止の防止
